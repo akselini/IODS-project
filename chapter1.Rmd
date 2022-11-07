@@ -3,7 +3,7 @@ I am excited to start the course --- and to start getting familiar with R\
 \
 As I read chapters 1 to ~~2~~ ~~3~~ 4 of *R for Health Data Science* in quick succession the amount of information was **overwhelming**. I hope I remember something for week 2.\
 \
-It was quite cumbersome to keep track of both the exercise set in RStudio and the webpage for the book. I ended up just following the book. Chapter 3 was definitely the hardest to get through, although probably its also the most important. I'm sure it will get easier with more exercises. Chapters 4 & 5 were the most fun, ggplot2 is very versatile. \
+It was quite cumbersome to keep track of both the exercise set in RStudio and the webpage for the book. I ended up just following the book. Chapter 3 was definitely the hardest to get through, although probably its also the most important. I'm sure it will get easier with more exercises. Chapters 4 and 5 were the most fun, ggplot2 is very versatile. \
 \
 
 `Speaking of versatile, Markdown is pretty nifty!`
