@@ -58,7 +58,7 @@ Now the p-value of attitude is 4.12e-09, and overall the model is better without
 ### 5. Diagnostic plots
 Finally, we will investigate the validity of the model with a few diagnostic plots.
 ```{r}
-par(mfrow = c(2,2))
+#par(mfrow = c(2,2))
 plot(m_corr,which=(c(1,2,5)))
 ```
 \
