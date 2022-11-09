@@ -1,5 +1,5 @@
 ---
-title: "IODS Project"
+title: "IODS-project"
 author: "Akseli Niemelä"
 output:
   html_document:
