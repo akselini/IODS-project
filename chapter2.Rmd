@@ -1,4 +1,4 @@
-# Insert chapter 2 title here
+# Regression and model validation
 
 *Describe the work you have done this week and summarize your learning.*
 
@@ -10,4 +10,60 @@
 date()
 ```
 
-Here we go again...
+### 1. Reading data
+The data set to be analyzed has survey results from 166 students. It lists each student's gender, age, attitude, exam points, and the extent of different learning strategies they utilized: deep approach, surface approach or strategic approach. Besides gender, the 7 variables are listed numerically. 
+```{r}
+#read data
+learning2014 <- read.table("data/learning2014.csv",sep=",",header=TRUE)
+#check its structure
+str(learning2014)
+#check its dimensions
+dim(learning2014)
+```
+\
+It has 166 rows and 7 columns, the data is correct.\
+
+### 2. Graphical overview
+As the data has been read correctly, next it will be investigated graphically.
+```{r}
+library(GGally)
+library(ggplot2)
+p <- ggpairs(learning2014, mapping = aes(col=gender,alpha=0.3), lower = list(combo = wrap("facethist", bins = 20)))
+p
+```
+\
+As can be seen, the data set has noticeably more females than males. The mean age for both groups is ~20, although the male distribution is more wide due to a lesser number of young students. The female attitude distribution is flat from 2.5-3.5, whereas male attitude is skewed higher. Both groups favor deep learning approaches, and less so strategic and surface level approaches - although females had a more narrow distribution than males. The exam point distribution for both groups is nearly equal, with males having a small peak at higher scores.\
+\
+Before looking at exam points, there's two noticeable correlations. Males' surface level learning and deep learning are significantly negatively correlated. A similar relationship is noticeable in males' surface level learning and attitude. For the whole sample, strategic learning is negatively correlated with surface level learning.\
+\
+Finally, looking at the whole population, exam points are positively correlated with attitude and strategic learning (to a lesser extent) and negatively correlated with surface level learning.\
+
+### 3. Regression model
+With the above mentioned three variables, we will make a regression model for exam points.
+```{r}
+m <- lm(points ~ attitude + stra + surf, data = learning2014)
+summary(m)
+```
+\
+As such the model is okay. The residual median is near 0 and on average a prediction may deviate by 5 points As stated previously attitude and strategic learning have a positive correlation whereas surface learning has negative.Looking at each contributing variable only attitude has a statistically significant relationship with exam points with a p-value of 1.93e-08. Thus we will remove the other variables from the model.\
+
+### 4. Corrected model
+```{r}
+m_corr <- lm(points ~ attitude, data = learning2014)
+summary(m_corr)
+```
+\
+Now the p-value of attitude is 4.12e-09, and overall the model is better without the over fitting. The intercept is 11.6 so on average if a student scored 0 in the attitude survey their exam score would be this value. The slope for attitude is 3.53, so if attitude increases by one predicted exam points increase by this value. The multiple R-squared value of the model is 0.191, therefore, attitude can explain 19.1 % of variance in exam points.\
+
+### 5. Diagnostic plots
+Finally, we will investigate the validity of the model with a few diagnostic plots.
+```{r}
+par(mfrow = c(2,2))
+plot(m_corr,which=(c(1,2,5)))
+```
+\
+The assumed linear relationship between attitude and exam points holds true, since the residuals vs fitted line is straight. Although the data points are generally well distributed on the line variance seems to be higher at lower exam scores. Subjects 145, 56 and 35 were identified as outliers.\
+\
+The Normal Q-Q plot shows that the residuals follow normal distribution well, although it is slightly skewed to higher values. The same outliers as before were noticed. Thus, the results of the statistical tests were valid.\
+\
+The residuals vs leverage plot tells us which data points were most influential for the model fitting. Outliers 56 and 35 are visible again, but instead of 145 71 was noticed. However, as no data points are outside Cook's distance there are no outliers that significantly influenced our model. Thus, the model is robust enough that its fitting wouldn't change a lot if some data points were removed. 
