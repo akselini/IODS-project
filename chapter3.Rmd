@@ -10,4 +10,168 @@
 date()
 ```
 
-### 1. Reading data
+### 2. Reading data
+We'll be investigating a combined data set on student alcohol consumption. The data was collected with surveys and school reports and it combines the math and portuguese subjects' grades together. 
+```{r}
+#read data
+library(tidyverse)
+alc <- read_csv("data/alc.csv",show_col_types=FALSE)
+#check the involved variables
+colnames(alc)
+```
+\
+The collected data includes several background factors such as the attended school, sex, age, family size etc. We will be looking at how high alcohol consumption relates to the other factors. Alcohol use is classified high when the mean value of weekday and weekend alcohol use is 2 on a scale of 1-5.\
+
+### 3. Hypothesis creation
+The four variables of interest relating to high alcohol use I've chosen are number of school absences, weekly study time, quality of family relationships and current health status.\
+\
+My hypotheses for these factors are the following: high alcohol use should -  
+
+ 1. positively correlate with absences
+ 2. negatively correlate with weekly study time
+ 3. negatively correlate with family relationship quality
+ 4. negatively correlate with good health
+\
+
+### 4. Variable exploration
+First let's look at absences.
+```{r}
+library(dplyr); library(ggplot2)
+#box plot
+g1 <- ggplot(alc, aes(x = high_use, y = absences))
+g1 + geom_boxplot() + ylab("absences") + ggtitle("Student absences by alcohol consumption and sex")
+```
+\
+The first hypothesis seems to hold true, next weekly study time.
+```{r}
+#bar plot
+g2 <- ggplot(data = alc,aes(x=factor(studytime)))
+g2 + geom_bar() + facet_wrap("high_use", scales = "free_y")+ xlab("studytime (h)")+scale_x_discrete(labels=c("1" = "<2", "2" = "2-5","3" = "5-10","4" = ">10"))  + ggtitle("Student weekly study time by alcohol consumption")
+```
+\
+Looking at the distribution, it is clear students with high alcohol use had less study time during the week as expected. Next, family relationship quality
+```{r}
+#cross tabulation
+alc %>% group_by(high_use) %>% summarise(count = n(), mean_family_relationship_quality=mean(famrel))
+#bar plot
+g3 <- ggplot(data = alc,aes(x=famrel))
+g3 + geom_bar() + facet_wrap("high_use",scales="free_y") + ggtitle("Student family relationship quality by alcohol consumption")
+```
+\
+There is a small difference in the mean value as per the third hypothesis. Additionally, by looking at the distribution we can identify that for low alcohol use students the distribution is skewed to the left, whereas for high alcohol use students it is more normally distributed. Finally, health is looked at.
+```{r}
+#bar plot
+g4 <- ggplot(data = alc,aes(x=health))
+g4 + geom_bar() + facet_wrap("high_use",scales="free_y") + ggtitle("Health by alcohol consumption")
+```
+\
+Interestingly, here the hypothesis was proven wrong. High alcohol use students reported their health to be in the best quality far more than low alcohol use students, who had a more variable distribution. \
+\
+Overall, 3/4 hypotheses proved correct. Why in this population the last hypothesis on alcohol consumption and health was incorrect could be due to higher outgoingness in the high use group, which would result in more physical activity. It could also be explained by self-report bias.
+\
+
+### 5. Logistic regression model
+Using these variables, we will create a logistic regression model for alcohol consumption.
+```{r}
+m <- glm(high_use ~ absences + studytime + famrel + health, data = alc, family = "binomial")
+#summary of the model
+summary(m)
+#get odds ratios
+OR <- coef(m) %>% exp
+#get confidence intervals
+CI <- confint(m) %>% exp
+#print both
+cbind(OR, CI)
+```
+\
+Absences, weekly study time and (less so) quality of family relationship are statistically significant and their relation to high alcohol use fits with our hypotheses. As we saw with health, its positively correlated instead of negatively correlated with high alcohol use, but it isn't statistically significant.\
+\
+The non-significance of health on alcohol consumption can be seen in the confidence interval of health, as it includes 1. Thus we cannot say whether the true odds ratio is above or below 1, i.e. whether for the true population health has a positive or negative effect on the odds of high alcohol consumption. For each absence the OR indicates that it increases the odds of being a high consumption individual by 7 % (for true population 4-13 %) and for weekly study time each point (i.e. increase in category from <2 to 2-5 hours) decreases odds by 42.1 % (22-58 %) and for each point increase of family relationship quality the odds decrease by 24.2 % (2-41 %).\
+
+### 6. Predictive power
+We'll only take the significant variables and see how this model performs.
+```{r}
+#make new model
+new_m <- glm(high_use ~ absences + studytime + famrel, data = alc, family = "binomial")
+#predict for each student whether they are high_use or not based on the variables
+alc <- mutate(alc, probability = predict(new_m, type = "response"))
+alc <- mutate(alc, prediction = probability > 0.5)
+
+#cross tabulation
+table(high_use = alc$high_use, prediction = alc$prediction) %>% prop.table()
+
+#optionally calculate training error with loss function
+loss_func <- function(class, prob) {
+  n_wrong <- abs(class - prob) > 0.5
+  mean(n_wrong)
+}
+loss_func(class = alc$high_use, prob = alc$probability)
+
+#creating simple guessing strategy, randomly assign a number for each student within the range of student number
+random_num <- sample(1:nrow(alc),nrow(alc))
+alc <- mutate(alc, rand = random_num)
+#count the number of high use students
+num_high_use <- sum(alc$high_use) 
+#if the random index is below the number of high use students predict them as a high use student
+alc <- mutate(alc, naive_prediction = rand < num_high_use)
+#this results in random guessing, but at least the proportion of high use students should be similar
+print("True number of high use students:")
+sum(alc$high_use)
+print("Randomly assigned number of high use students:")
+sum(alc$naive_prediction)
+#finally, test its function with cross tabulation
+table(high_use = alc$high_use, prediction = alc$naive_prediction) %>% prop.table()
+```
+\
+The proportion of falsely assigned individuals is 0.254 + 0.041 = 0.295 -> 29.5 %. The same value is calculated with the loss function. Therefore, roughly every third guess is wrong. \
+\
+With a completely random assignment, but still keeping the proportion of high alcohol consumption students correct gives a value of 0.232 + 0.235 = 0.467 -> 46.7 %. Much worse. Therefore, although the model has a large error, it is still better than randomly guessing based on the proportion of populations.\
+
+### 7. 10-fold cross validation
+Next, we will check its predictive power using a 10-fold cross-validation.
+```{r}
+library(boot)
+cv10 <- cv.glm(data = alc, cost = loss_func, glmfit = new_m, K = 10)
+cv10$delta[1]
+```
+\
+With a value of 0.3, this model doesn't beat the model based on sex, failures and absences, whose value was ~0.26. Next, let's attempt to find a better model.
+```{r}
+library(lares)
+#find highest correlations with a quick and dirty method found via google: https://statsandr.com/blog/correlogram-in-r-how-to-highlight-the-most-correlated-variables-in-a-dataset/
+corr_var(alc,high_use,max_pvalue=0.05,top=15)
+
+better_m <- glm(high_use ~ goout + absences + studytime + sex, data = alc, family= "binomial")
+#check significance, if variables not significant iterate ^
+summary(better_m)
+
+better_cv10 <- cv.glm(data = alc, cost = loss_func, glmfit = better_m, K = 10)
+better_cv10$delta[1]
+```
+\
+In the end, to keep all variables statistically significant, best ones noted were going out with friends, absences, study time and sex. This resulted in a model with an error of ~0.21.\
+
+### 8. Comparing different logistic models
+Let's start with 10 best predictors collected from previous graph and gradually lessen them.
+```{r}
+model_errors <- numeric(0)
+model_errors[10] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex + failures + freetime + G1 + G2 + traveltime + G3, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[9] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex + failures + freetime + G1 + G2 + traveltime, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[8] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex + failures + freetime + G1 + G2, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[7] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex + failures + freetime + G1, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[6] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex + failures + freetime, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[5] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex + failures, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[4] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime + sex, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[3] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences + studytime, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[2] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout + absences, data = alc, family= "binomial"), K = 10)$delta[1]
+model_errors[1] <-cv.glm(data = alc, cost = loss_func, glmfit = glm(high_use ~ goout, data = alc, family= "binomial"), K = 10)$delta[1]
+
+predictor_num <- c(1:10)
+df <- data.frame(model_errors,predictor_num)
+colnames(df)
+g5 <- ggplot(data = df,aes(x=predictor_num,y=model_errors))
+g5 + geom_bar(stat = "identity")
+
+```
+\
+After the first 4 predictors the error doesn't keep decreasing and instead flatlines,  sometimes even increasing. This is probably a case of overfitting.\
