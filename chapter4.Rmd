@@ -1,0 +1,158 @@
+# Clustering and classification
+
+*Describe the work you have done this week and summarize your learning.*
+
+- Describe your work and results clearly. 
+- Assume the reader has an introductory course level understanding of writing and reading R code as well as statistical methods.
+- Assume the reader has no previous knowledge of your data or the more advanced methods you are using.
+
+```{r}
+date()
+```
+
+### 2.Loading data
+First, we'll load in the data.
+```{r}
+library(tidyverse)
+library(MASS)
+#load data
+data("Boston")
+#explore it
+glimpse(Boston)
+```
+\
+The Boston data set included in the MASS library lists housing values in the suburbs of Boston, as well as relevant census factors such as crime rate, proportion of land zoned for lots, nitrogen oxide concentrations and pupil-teacher ratio. There's 506 observations with 14 variables.\
+
+### 3. Graphical overview
+Let's look at the data more carefully.
+```{r}
+library(corrplot)
+#get mean data on variables
+summary(Boston) 
+#create correlation matrix
+cor_matrix <- cor(Boston) %>% round(digits = 2)
+#draw the correlation plot
+corrplot(cor_matrix, method="circle",type="upper",cl.pos = "b",tl.pos = "d",tl.cex=0.6)
+```
+\
+From the summaries we can see that the mean per capita crime rate is 3.6, but as the median is 0.25 it seems that the distribution is skewed due to some high crime rate towns. Similarly, given that the maximum median value of owner occupied houses is 10-fold larger than the minimum, there's a large income division between towns.\
+\
+Looking at the plot, the median value of owner occupied houses is negatively correlated with lower status of the population and positively with average number of rooms per dwelling, which makes sense. Crime on the other hand has the largest correlation with the index of accessibility to radial highways, which also makes sense given radial highways link to urban centers which have a high population density. There are other interesting correlations, but I'll highlight one last one between nitrogen oxides concentration and proportion of non-retail businesses, whose correlation profiles almost identical.\
+
+### 4. Data set standardization
+Now, we'll scale the data.
+```{r}
+#scale variables and show their summary
+boston_scaled <- as.data.frame(scale(Boston))
+summary(boston_scaled)
+
+#create categorical variable crime to replace crim
+boston_scaled$crim <- as.numeric(boston_scaled$crim)
+bins <- quantile(boston_scaled$crim)
+crime <- cut(boston_scaled$crim, breaks = bins, include.lowest = TRUE,labels = c("low","med_low","med_high","high"))
+boston_scaled <- dplyr::select(boston_scaled, -crim)
+boston_scaled <- data.frame(boston_scaled, crime)
+
+#create train and test set with 0.8:0.2 proportion
+n <- nrow(boston_scaled)
+ind <- sample(n,  size = n * 0.8)
+train <- boston_scaled[ind,]
+test <- boston_scaled[-ind,]
+```
+\
+Now all of the scaled variables have a mean value of 0.\
+
+### 5. Linear discriminant analysis fitting
+Next, we'll create a LDA model for predicting the categorical crime rate.
+```{r}
+#creating the model
+lda.fit <- lda(crime ~ ., data = train)
+#arrows for visualization
+lda.arrows <- function(x, myscale = 1, arrow_heads = 0.1, color = "red", tex = 0.75, choices = c(1,2)){
+  heads <- coef(x)
+  arrows(x0 = 0, y0 = 0, 
+         x1 = myscale * heads[,choices[1]], 
+         y1 = myscale * heads[,choices[2]], col=color, length = arrow_heads)
+  text(myscale * heads[,choices], labels = row.names(heads), 
+       cex = tex, col=color, pos=3)
+}
+#turning classes numeric for visualization
+classes <- factor(train$crime) %>% unclass() %>% as.numeric()
+plot(lda.fit,dimen=2,col = classes,pch=classes)
+lda.arrows(lda.fit, myscale = 2)
+```
+\
+LDA was able to separate the high crime towns very well from the other towns using index of accessibility to radial highways. Similarly there is a clear gradient from low to med_high towns caused by nitrogen oxides concentration and proportion of residential land zoned for lots, in other words, areas like suburbs have less crime whereas urban areas have more. (Sidenote: I couldn't get pch to work in plot())\
+
+### 6. Prediction and evaluation
+Let's use the trained model to predict the values of our test set.
+```{r}
+#save the crime data from the test set and remove it
+correct_classes <- test$crime
+test <- dplyr::select(test, -crime)
+
+#predict with the created model
+lda.pred <- predict(lda.fit, newdata = test)
+
+#perform cross tabulation
+table(correct = correct_classes, predicted = lda.pred$class)
+```
+\
+The model predicted the majority of the test set correctly. The false predictions are definitely higher at the lower crime rate towns as they aren't separated by the index of accessibility to radial highways.\
+
+### 7. Clustering
+Finally, we'll perform k-means clustering.
+```{r}
+#reload and scale data set
+data(Boston)
+boston_scaled <- scale(Boston)
+
+#create euclidean distance matrix and view its summary
+dist_eu <- dist(boston_scaled)
+summary(dist_eu)
+
+#find optimal number of clusters
+set.seed(123)
+k_max <- 10
+twcss <- sapply(1:k_max, function(k){kmeans(boston_scaled, k)$tot.withinss})
+#visualize
+qplot(x = 1:k_max, y = twcss, geom = 'line')
+#2 clusters seems to be optimal
+
+#perform k-means clustering to create 2 clusters
+km <- kmeans(boston_scaled, centers = 2)
+pairs(boston_scaled[,c(1,2,9,14)], col = km$cluster)
+```
+\
+Two clusters seems to be optimal based on the WCSS plot, and looking at the pairs plot for some of the variables of interest indeed shows a clear separation of two populations. For example, when crime is low, the median values can be high, whereas all the high crime towns have low median values. Next let's try LDA for the clusters
+```{r}
+#I removed chas as for some reason lda() throws an error when chas is included stating it is constant, even though the summary shows it isn't
+boston_scaled <- as.data.frame(boston_scaled)
+summary(boston_scaled$chas)
+boston_scaled <- dplyr::select(boston_scaled, -chas)
+
+#create new model with 3 clusters
+km_new <- kmeans(boston_scaled, centers = 3)
+
+#add the cluster classification as a column
+boston_scaled <- mutate(boston_scaled,clu = km_new$cluster)
+
+#perform lda on cluster
+lda.fit <- lda(clu ~ ., data = boston_scaled)
+
+#arrows for visualization
+lda.arrows <- function(x, myscale = 1, arrow_heads = 0.1, color = "red", tex = 0.75, choices = c(1,2)){
+  heads <- coef(x)
+  arrows(x0 = 0, y0 = 0, 
+         x1 = myscale * heads[,choices[1]], 
+         y1 = myscale * heads[,choices[2]], col=color, length = arrow_heads)
+  text(myscale * heads[,choices], labels = row.names(heads), 
+       cex = tex, col=color, pos=3)
+}
+#use for visualization
+classes <- factor(boston_scaled$clu) %>% unclass() %>% as.numeric()
+plot(lda.fit,dimen=2,col = classes,pch=classes)
+lda.arrows(lda.fit, myscale = 4)
+```
+\
+Now several predictors such as nitrogen oxides concentration, taxes,  proportion of industry, access to radial highways separate group 3, and age and proportion of residential land separate groups 1 and 2.
