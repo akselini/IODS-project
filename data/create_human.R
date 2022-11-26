@@ -51,4 +51,5 @@ human <- inner_join(hd,gii,by="Country")
 glimpse(human)
 #output: 195 observations and 19 variables as expected
 
-write_csv(human,"data/human.csv")
+write_csv2(human,"data/human.csv")
+
