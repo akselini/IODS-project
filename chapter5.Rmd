@@ -1,0 +1,134 @@
+# Dimensionality reduction techniques
+
+*Describe the work you have done this week and summarize your learning.*
+
+- Describe your work and results clearly. 
+- Assume the reader has an introductory course level understanding of writing and reading R code as well as statistical methods.
+- Assume the reader has no previous knowledge of your data or the more advanced methods you are using.
+
+```{r}
+date()
+```
+\
+
+### 1. Graphical overview
+Let's load in the data and take a look at it.
+```{r}
+#read data
+library(tidyverse)
+human <- read.csv("data/human2.csv",row.names=1)
+glimpse(human)
+#155 rows and 8 columns as expected
+
+#visualize
+library(GGally)
+ggpairs(human)
+library(corrplot)
+cor(human) %>% corrplot()
+
+#summary
+summary(human)
+```
+\
+The data to be analyzed combines human welfare and gender equality data sets for countries. Here's explanations for the variables:
+ 
+ - Life.Exp = life expectancy
+ - Edu.Exp = expected years of schooling 
+ - GNI = gross national income per capita
+ - Mat.Mor = maternal mortality ratio
+ - Ado.Birth = adolescent birth rate
+ - Parli.F = percentage of female representatives in parliament 
+ - Edu2.FM =ratio of female and male populations with secondary education 
+ - Labo.FM = ratio of female and male populations within the workforce
+
+\
+First, let's look at obvious skews between mean and median. GNI, maternal mortality ratio and adolescent birth rate all have a higher mean value than median. Thus, although generally for countries the values are low, there's some countries with very high values which skew the results. This is verified in the pair plot distribution. Life expectancy and proportion of women in parliament are mirrored, where a clear peak is formed at the end or start respectively, but the drop off is gentle towards lower or higher values respectively.\
+\
+Adolescent birth rate and maternal mortality ratio have nearly identical correlation profiles, and similarly proportion of women vs men in secondary education, life expectancy, expected years of schooling and GNI have very similar correlation profiles. These two variable groups correlate negatively with each other, which makes sense, as countries with good education and economy generally have better conditions and rights for women. Proportion of women vs men in the labour force or proportion of women in parliament only have weak correlations.\
+\
+
+### 2. PCA sans scaling
+Next, let's perform principal component analysis to group the countries.
+```{r}
+pca <- prcomp(human)
+#make the percentages for principal components
+s <- summary(pca)
+pca_pr <- round(100*s$importance[2, ], digits = 1)
+#prep the labels
+pc_lab<- paste0(names(pca_pr), " (", pca_pr, "%)")
+# draw the pca
+biplot(pca, cex = c(0.7, 0.8), col = c("grey40", "deeppink2"), xlab = pc_lab[1], ylab = pc_lab[2])
+```
+\
+According to the PCA without standardization, and only looking at PC1 as it explains practically all variance, countries would have very similar welfare and gender equality profiles, but high GNI countries like Qatar, Kuwait, Singapore, Norway would have different profiles. If we assume PC2 is maternal mortality ratio then most countries on the positive side of PC2 group together as they have low to average GNI, but due to global medical advances lesser maternal mortality. Then countries with poor GNI and high maternal mortality ratios separate (Sierra Leone, Chad) and countries with very good GNI but also higher than average maternal mortality ratios (Qatar especially, Kuwait, Singapore).\
+\
+
+### 3. PCA with scaling
+Let's try scaling the variables first and then creating the plot
+```{r}
+#standardize
+human_std <- scale(human)
+
+#pca 2
+pca_std <- prcomp(human_std)
+#make the percentages for principal components
+s_std <- summary(pca_std)
+pca_pr_std <- round(100*s_std$importance[2, ], digits = 1)
+#prep the labels
+pc_lab_std<- paste0(names(pca_pr_std), " (", pca_pr_std, "%)")
+# draw the pca
+biplot(pca_std, cex = c(0.7, 0.8), col = c("grey40", "deeppink2"), xlab = pc_lab_std[1], ylab = pc_lab_std[2])
+```
+\
+After scaling the data, a more rational PCA plot is made, where PC1 explains 53 % of variance and PC2 16 %. Countries are distributed along PC1 almost equally strongly towards negative values by expected years of education, life expectancy, gross national income and proportion of women vs men in secondary education. Their angles are similar as they all correlate together as noted before. Maternal mortality ratio and adolescent birth rate go hand in hand, and they pull countries to the positive values on PC1. PC2 on the other hand is described by proportion of women vs men in workforce and proportion of women in parliament, which are relatively closely correlated. This allows a more nuanced look at gender equality in countries without it being skewed by generally better healthcare.  
+\
+Clearly standardization is essential for PCA, as GNI with its very high numeric values (max: 123124) completely overtakes the whole unscaled PCA plot. With rounding the principal component 1 explained 100 % of variation. Still, the plot did create a nice pattern, but its impossible to say what contributed to it, probably the second numerically highest variable which was maternal mortality ratio. As this is highly correlated with GNI, the plot is almost one dimensional. Scaling led to a very different plot, which was able to separate countries by variables with smaller numeric values.\
+\
+
+### 4. PCA interpretation of standardized data
+PC1 essentially describes the economic situation in countries, as a healthier economy leads to better healthcare and thus allows women to have better conditions and for them to also participate in the educational system. PC2 on the other hand gives a better look on the cultural position of women in these countries. Let's look at the four quadrants separately.\
+\
+When PC1 and PC2 are positive the economic situation is poor, but women have, at least relatively, a lot of power in both the workforce and politically. Taking the clear outlier Rwanda as an example, although it ranks averagely on PC1, it seems to rank highest in terms of gender equality. Indeed this is confirmed by the first paragraph in the wikipedia article on the gender equality in Rwanda (https://en.wikipedia.org/wiki/Gender_equality_in_Rwanda).\
+\
+When PC1 is positive and PC2 is negative both the economic conditions and women's rights are poor. As countries with active conflicts, such as Yemen and Afghanistan are highlighted here this makes sense.\
+\
+When PC1 and PC2 are negative the economic situation is good but women's rights are poor. Qatar is a good example of a country with a very high GNI due to a small number of ultra rich individuals, but as it is an Islamic state women don't have a lot of power.\
+\
+When PC1 is negative and PC2 is positive western countries are separated, with northern European countries furthest from the pack. Here economy and women's rights are in a relatively good position.\
+\
+### 5. MCA
+Finally, we will look at something completely different.
+```{r}
+#read data
+tea <- read.table("https://raw.githubusercontent.com/KimmoVehkalahti/Helsinki-Open-Data-Science/master/datasets/tea.csv", 
+                       sep = ",", header = T)
+#View(tea)
+
+#remove age, as it is numerical
+tea <- dplyr::select(tea,-19)
+#glimpse(tea)
+#convert all categorical variables to factors with a method given in this thread:
+#https://stackoverflow.com/questions/20637360/convert-all-data-frame-character-columns-to-factors
+tea <- tea %>% mutate_if(is.character,as.factor)
+dim(tea)
+
+#lets visualize the first 16 variables
+library(ggplot2)
+pivot_longer(tea[1:16], cols = everything()) %>% 
+  ggplot(aes(value)) + facet_wrap("name", scales = "free") + geom_bar()
+```
+\
+As can be seen, there's 35 variables, and from the separate plots it is hard to draw any meaningful conclusions besides e.g. "majority of tea consumption doesn't happen during dinner". Let's group 6 random variables with MCA, such as 15 to 21.
+```{r}
+library(FactoMineR)
+#perform MCA
+mca <- MCA(tea[15:21], graph = FALSE)
+#get summary
+summary(mca)
+#plot
+plot(mca,invisible=c("ind"), graph.type = "classic",habillage="quali")
+```
+\
+With this random sample of variables, dimensions 1 and 2 explain 22 % of the variance, not too bad! Based on the v.tests in the summary, we can see that e.g. the categories tea bag, unpackaged, chain store and tea shop had significant contributions to the first dimension. Then based on eta2 we can see that variables where, price and how had the most weight for both dimensions.\
+\
+Looking at the plot we can see some interesting groupings. For example, when tea is enjoyed in a tea shop it is often unpackaged and it is often upscale, whereas when tea is enjoyed in a chain store, it is often in a tea bag and it is either cheap, branded, private labelled or unknown. Additionally, this kind of tea is enjoyed with sugar. Workmen seem to be closest associated with cheap tea, whereas middle management is closest to upscale tea.\ 
