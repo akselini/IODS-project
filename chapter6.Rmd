@@ -1,0 +1,256 @@
+# Analysis of longitudinal data
+
+*Describe the work you have done this week and summarize your learning.*
+
+- Describe your work and results clearly. 
+- Assume the reader has an introductory course level understanding of writing and reading R code as well as statistical methods.
+- Assume the reader has no previous knowledge of your data or the more advanced methods you are using.
+
+```{r}
+date()
+```
+\
+
+### 1. Longitudinal data analysis with an assumption of independence between measurements
+
+In the first part of this report we will investigate data which lists rat weight as a function of time under different nutritional plans.\
+
+#### 1.1. Data loading and early investigation
+
+First let's load in the data and explore it.
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+#read data
+RATSL <- read.csv("data/ratsl.csv")
+
+#check data was read correctly
+glimpse(RATSL)
+
+#refactorize ID and Group
+RATSL$ID <- factor(RATSL$ID)
+RATSL$Group <- factor(RATSL$Group)
+
+#standardize the data and add as column
+RATSL <- RATSL %>%
+  group_by(Time) %>%
+  mutate(stdweight = (Weight - mean(Weight))/sd(Weight)) %>%
+  ungroup()
+
+#plot raw data
+ggplot(RATSL, aes(x = Time, y = Weight,colour=ID )) + 
+  geom_line() +
+  facet_grid(. ~ Group, labeller = label_both) +
+  theme(legend.position = "none") + 
+  xlab("Time (d)") + ylab("Weight (g)")
+
+#plot standardized data
+ggplot(RATSL, aes(x = Time, y = stdweight,colour=ID ))+ 
+  geom_line() +
+  facet_grid(. ~ Group, labeller = label_both) +
+  theme(legend.position = "none") + 
+  xlab("Time (d)") + ylab("Standardized weight (g)")
+
+#add standard error as column, but dont divide by sqrt sample size yet because sample sizes vary
+RATSS <- RATSL %>%
+  group_by(Group, Time) %>%
+  summarise( mean = mean(Weight), se = sd(Weight)) %>%
+  ungroup()
+
+#go over each row
+for(i in 1:nrow(RATSS)) 
+{       
+  #if belongs to group 1
+  if (RATSS[i,1] == 1)
+  {
+    #divide by sqrt 8, where 8 is the number of rats in group 1
+    RATSS[i,4] <- RATSS[i,4] / sqrt(8)
+  } 
+  else 
+  {
+    #otherwise divide by sqrt 4 which is the number of rats in groups 2 and 3
+    RATSS[i,4] <- RATSS[i,4] / sqrt(4)
+  }
+}
+
+
+#plot summary graph
+ggplot(RATSS, aes(x = Time, y = mean, linetype = Group, shape = Group)) +
+  geom_line() +
+  geom_point(size=3) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, linetype="1"), width=0.3) +
+  theme(legend.position = c(0.8,0.8)) +
+  xlab("Time(d)") + 
+  ylab("Mean(g) +/- standard error(g)") + 
+  ggtitle("Weight change of rats under different diets") +
+  theme(legend.position = "right")
+```
+\
+We are interested in seeing whether different diets induced different weight change profiles on rats. Evaluating the first graph by eye gives the impression that group 2 had the most weight gain, then group 3 and lastly group 1. The standardized graph shows well how groups 2 and 3 had significantly higher starting weights, which also stayed high. \
+\
+The summary graph tells the same story. Additionally the error bars show how the standard error is the highest in group 2, probably due to the one rat with a very high starting weight. However, in general it is hard to see if there is a difference so let's change strategies.\
+\
+
+#### 1.2. Box plots
+Based on previous graphs the weight change is quite stable, i.e. it doesn't fluctuate remarkably. Thus, as a naive approach we will make box plots on the weight change between days 1 and 64 on an absolute and relative scale. This will naturally ignore all the other day's data but as there aren't remarkable fluctuations it should give us a good idea on the cumulation.
+```{r}
+#as done in exercises, assuming day 1 is baseline, creating a summary for days 8-64, but simply plotting this would lead to a comparison between starting weights, which isn't very useful. 
+#RATSLS <- RATSL %>%
+#  filter(Time > 2) %>%
+#  group_by(Group, ID) %>%
+#  summarise( mean=mean(Weight) ) %>%
+#  ungroup()
+
+#calculate relative and absolute change between days 1 and 64
+baseline <- filter(RATSL,Time==1)
+endpoint <- filter(RATSL,Time==64)
+endpoint <- endpoint %>%
+  mutate(delta_abs = Weight-baseline$Weight) %>%
+  mutate(delta_rel = Weight/baseline$Weight)
+
+#boxplot of absolute weight change
+ggplot(endpoint, aes(x = Group, y = delta_abs)) +
+  geom_boxplot() +
+  stat_summary(fun = "mean", geom = "point", shape=23, size=4, fill = "white") +
+  scale_y_continuous(name = "Absolute weight change between days 1 and 64 (g)")
+
+#boxplot of relative weight change
+ggplot(endpoint, aes(x = Group, y = delta_rel)) +
+  geom_boxplot() +
+  stat_summary(fun = "mean", geom = "point", shape=23, size=4, fill = "white") +
+  scale_y_continuous(name = "Relative weight change between days 1 and 64 (g)")
+```
+\
+Based on absolute weight change my previous assessment that most weight gain happens in group 2, then 3, then 1 is correct. Groups 2 and 3 also have more variance. However, relative weight change paints a different picture, where groups 1 and 3 are equal, and 2 barely higher (a difference of ~5 %-units). Like before, groups 2 and 3 have slightly more variance than group 1. In both plots there is one outlier (from different groups), but with such a small sample size it seems unwise to remove them. Especially since the plots of previous graphs were reasonable. This outlier causes slight skewing in the distribution in the absolute scale for group 2. \
+\
+
+#### 1.3. Anova
+Finally, as we have 3 samples (and thus a two-sample t-test is unsuitable), we'll perform anova. This time let's represent weight gain as the mean from days 8-64. For fun, let's also do it for day 1 vs day 64.  
+```{r}
+RATSLS <- RATSL %>%
+  filter(Time > 1) %>%
+  group_by(Group, ID) %>%
+  summarise( mean=mean(Weight) ) %>%
+  ungroup()
+
+#add baseline back
+RATSLS1 <- RATSLS %>%
+  mutate(baseline = baseline$Weight)
+
+#fit linear model for anova
+fit <- lm(mean ~ baseline + Group, data = RATSLS1)
+#compute anova
+anova(fit)
+
+#day 1 vs 64 comparison for fun
+endpoint <- endpoint %>%
+  mutate(baseline = baseline$Weight)
+fit2 <- lm(Weight ~ baseline + Group, data = endpoint)
+anova(fit2)
+```
+\
+Anova tells us that, as expected, the baseline is very significant for explaining variance between the means, but the treatment group isn't (p=0.076). Thus, at least with this sample size we would have to say that there isn't a difference between the distributions in groups, i.e. the diets didn't have differences on weight gain outcomes.\
+\
+By only comparing day 1 and day 64, then the group does become significant (p=0.037). Of course, this kind of p-hacking leaves a bad taste in my mouth. However, as I argued in the box plot interpretations, the weight accumulation was very stable between weeks, and thus only looking at the furthest end points is somewhat justified (more prone to errors as well). Naturally this result only tells us that one of the treatment groups is significantly different from the rest, but without proper post-hoc tests (which should have been planned before hand) we can't know which group is the significantly different one, although group 2 is the likely candidate.\
+\
+A more robust way to measure this change would be to take the days 1-32 data average and compare it to 32-64 average, as now using day 1 vs average is dependent on day 1 fluctuations, and day 1 vs day 64 is dependent on both of their fluctuations.\
+\
+
+### 2. Longitudinal data analysis with an assumption of dependence between measurements
+
+In this second part we will investigate data of 40 subjects divided to two groups of 20, who are given either treatment 1 or 2 for schizophrenia. The degree of mental health problems are measured with Brief Psychiatric Rating Scale. A higher value means more symptoms.\
+
+#### 2.1. Data loading and early investigation
+
+Let's load in the data and explore it.
+```{r}
+#read data
+BPRSL <- read.csv("data/bprsl.csv")
+
+#check data was read correctly
+glimpse(BPRSL)
+
+#refactorize
+BPRSL$subject <- factor(BPRSL$subject)
+BPRSL$treatment <- factor(BPRSL$treatment)
+
+#simple plot
+ggplot(BPRSL, aes(x = week, y = bprs, colour = subject)) +
+  geom_line()+#aes(linetype = subject)) +
+  facet_grid(. ~ treatment, labeller = label_both) +
+  theme(legend.position = "none") + 
+  xlab("Time (w)") + ylab("BPRS")
+```
+\
+For this data the question is whether one treatment is superior to the other. Based on the development of BPRS over time both treatments seem to work to some extent as BPRS decreases over time in the majority of cases. As in the earlier data set, the tracking phenomenon is visible here as well. For treatment 1 variability seems to decrease over time, but for treatment 2 it stays relatively high. \
+\
+
+#### 2.2. Linear regression model
+
+Next we will explore some regression models, starting with a standard linear regression model, which assumes each measurement is independent.
+```{r}
+BPRSL_reg <- lm(bprs ~ week + treatment,BPRSL)
+summary(BPRSL_reg)
+```
+\
+Compared to treatment 1, only time (week) has statistically significant correlation (p<2e-16) with BPRS-score. R-squared values tell us that the time dependence explains 20 % of variation.\
+\
+
+#### 2.3. Random intercept model
+
+Let's try to better the model by enabling random intercepts. 
+```{r}
+library(lme4)
+library(lmerTest) # this package gives p-tests for lme4
+BPRSL_ref <- lmer(bprs ~ week + treatment + (1 | subject), data = BPRSL, REML = FALSE)
+summary(BPRSL_ref)
+```
+\
+The standard error for treatment 2 slightly decreased, but not remarkably. Overall the significance of week and treatment2 are very similar.\ 
+\
+
+#### 2.4. Random intercept and slope model
+
+Let's make the slope random as well.
+```{r}
+BPRSL_ref1 <- lmer(bprs ~ week + treatment + (week | subject), data = BPRSL, REML = FALSE)
+summary(BPRSL_ref1)
+
+#compare them with anova
+anova(BPRSL_ref1, BPRSL_ref)
+```
+\
+Treatment standard error keeps decreasing. Now week has a random effect correlation of -0.51 and the fixed effect correlation increased further to -0.582. The anova test between models indicated statistically significant difference between them.\
+\
+
+#### 2.4. Interacting random intercept and slope model
+
+Finally, let's allow interaction between week and treatment.
+```{r}
+BPRSL_ref2 <-lmer(bprs ~ week * treatment + (week | subject), data = BPRSL, REML = FALSE)
+summary(BPRSL_ref2)
+
+#compare interacting and non-interacting with anova
+anova(BPRSL_ref2, BPRSL_ref1)
+
+#add fitted values as a column
+Fitted <- fitted(BPRSL_ref2)
+BPRSL <- mutate(BPRSL,fitted=Fitted)
+
+#draw fitted values
+ggplot(BPRSL, aes(x = week, y = fitted, colour = subject)) +
+  geom_line()+#aes(linetype = subject)) +
+  facet_grid(. ~ treatment, labeller = label_both) +
+  theme(legend.position = "none") + 
+  xlab("Time (w)") + ylab("BPRS")
+
+#confidence interval
+confint(BPRSL_ref2)
+```
+\
+Overall the model parameters between an interacting and non-interacting model remain very similar. In fact, the combined ANOVA test between them revealed that they were not statistically significantly different. \
+\
+Regardless, based on the coefficient of treatment2 and its standard error, it is impossible to say whether it is better or worse than treatment 1. I.e. we don't know if compared to treatment 1 it decreases or increases BPRS-score. This result matches with the confidence interval which spans 0. \
+\
